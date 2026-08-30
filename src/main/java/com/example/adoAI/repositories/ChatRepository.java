@@ -1,4 +1,8 @@
 package com.example.adoAI.repositories;
 
-public class ChatRepository {
+
+import com.example.adoAI.entities.Chat;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface ChatRepository extends JpaRepository<Chat,Long> {
 }
