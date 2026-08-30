@@ -3,9 +3,11 @@ package com.example.adoAI.entities;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
+
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -17,6 +19,7 @@ import java.util.Objects;
 @Getter
 @Setter
 @NoArgsConstructor
+@AllArgsConstructor
 
 public class Chat {
     @Id
@@ -47,15 +50,6 @@ public class Chat {
     @PreUpdate
     public void preUpdate() {
         this.updatedAt = LocalDateTime.now();
-    }
-
-
-    public Chat(Long id, String title, LocalDateTime createdAt, LocalDateTime updatedAt, List<Message> messages) {
-        this.id = id;
-        this.title = title;
-        this.createdAt = createdAt;
-        this.updatedAt = updatedAt;
-        this.messages = messages;
     }
 
 
