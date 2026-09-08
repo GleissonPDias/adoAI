@@ -8,11 +8,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 @Service
@@ -24,8 +26,19 @@ public class GeminiService {
     @Value("${gemini.api.url}")
     private String apiUrl;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public GeminiService() {
+        this.restTemplate = new RestTemplate();
+        // Força UTF-8 para decodificar corretamente a resposta da IA
+        this.restTemplate.getMessageConverters()
+                .forEach(converter -> {
+                    if (converter instanceof StringHttpMessageConverter) {
+                        ((StringHttpMessageConverter) converter).setDefaultCharset(StandardCharsets.UTF_8);
+                    }
+                });
+    }
 
     public String generateResponse(String userMessage, String history) {
         String prompt = buildPrompt(userMessage, history);
