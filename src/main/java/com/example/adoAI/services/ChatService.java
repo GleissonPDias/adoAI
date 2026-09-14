@@ -88,11 +88,15 @@ public class ChatService {
         chatRepository.delete(chat);
     }
 
+    private static final int MAX_HISTORY_MESSAGES = 12;
+
     private String buildHistory(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
             return "";
         }
-        return messages.stream()
+        int total = messages.size();
+        List<Message> recent = messages.subList(Math.max(0, total - MAX_HISTORY_MESSAGES), total);
+        return recent.stream()
                 .map(m -> m.getRole() + ": " + m.getContent())
                 .collect(Collectors.joining("\n"));
     }

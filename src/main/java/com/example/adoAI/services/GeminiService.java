@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
@@ -31,13 +30,6 @@ public class GeminiService {
 
     public GeminiService() {
         this.restTemplate = new RestTemplate();
-        // Força UTF-8 para decodificar corretamente a resposta da IA
-        this.restTemplate.getMessageConverters()
-                .forEach(converter -> {
-                    if (converter instanceof StringHttpMessageConverter) {
-                        ((StringHttpMessageConverter) converter).setDefaultCharset(StandardCharsets.UTF_8);
-                    }
-                });
     }
 
     public String generateResponse(String userMessage, String history) {
@@ -50,8 +42,14 @@ public class GeminiService {
         String systemPrompt = """
                 Você é um assistente virtual especializado em mangás e animes.
                 Responda SEMPRE em português brasileiro, de forma clara e objetiva.
-                Use apenas o contexto e o histórico fornecidos.
-                Se não souber a resposta, diga claramente que não sabe, em vez de inventar.
+                Siga rigorosamente estas regras:
+                1. Responda com base APENAS no seu conhecimento e no histórico da conversa fornecido.
+                2. Você NÃO tem acesso à internet em tempo real. Seu conhecimento tem um limite de data de treinamento.
+                3. Se a pergunta envolver informações que mudam com o tempo (datas futuras, resultados atuais, notícias, eventos em andamento, preços, previsões), informe claramente que depende de dados atualizados e não invente valores.
+                4. Se não souber a resposta, diga claramente que não sabe, em vez de inventar.
+                5. Não induza o usuário ao erro. Se teve dúvida, seja transparente sobre a incerteza.
+                6. Se o usuário perguntar sobre comparações hipotéticas (ex: "quem venceria X ou Y?"), analise os feitos documentados de cada um nos mangás/animes e defenda um vencedor provável, explicando o raciocínio, com base nas regras do próprio universo.
+                7. Quando a pergunta permitir, você pode responder com leveza e humor, mantendo o respeito pela informação factual.
 
                 Histórico da conversa até agora:
                 %s
@@ -70,14 +68,21 @@ public class GeminiService {
                         Map.of("parts", new Object[]{
                                 Map.of("text", prompt)
                         })
-                }
+                },
+                "generationConfig", Map.of(
+                        "temperature", 0.8,
+                        "topP", 0.95,
+                        "topK", 40,
+                        "maxOutputTokens", 512
+                )
         );
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(content, headers);
 
         try {
             String url = apiUrl + "?key=" + apiKey;
-            return restTemplate.postForObject(url, request, String.class);
+            byte[] responseBytes = restTemplate.postForObject(url, request, byte[].class);
+            return new String(responseBytes != null ? responseBytes : new byte[0], StandardCharsets.UTF_8);
         } catch (HttpStatusCodeException e) {
             throw new AIServiceException("Erro do provedor de IA (HTTP " + e.getStatusCode().value() + "): " + e.getResponseBodyAsString());
         } catch (ResourceAccessException e) {

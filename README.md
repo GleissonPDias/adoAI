@@ -22,7 +22,7 @@ Projeto desenvolvido para o curso de TSI (Senac) — ADO 1: *API Web integrada c
 | **Spring Data JPA + H2** | Persistência das conversas (banco em memória) |
 | **Spring Security** | Configuração de segurança liberada para demo |
 | **Jakarta Validation** | Validação de input (`@Valid`, `@NotBlank`, `@Size`) |
-| **Google Gemini API** | Provedor de IA Generativa (`gemini-3.1-flash-lite`) |
+| **Google Gemini API** | Provedor de IA Generativa (`gemini-3.6-flash`) |
 | **Springdoc OpenAPI (Swagger UI)** | Documentação interativa das rotas |
 | **Bucket4j** | Rate limiting (10 requisições/minuto por IP) |
 | **Lombok** | Redução de boilerplate |
@@ -190,15 +190,30 @@ Formato padrão de erro:
 
 ---
 
-## 🧠 Engenharia de Prompt
+## 🧠 Engenharia de Prompt e Parâmetros de Geração
 
 O `GeminiService` monta o prompt enviado à IA com:
 - **Papel definido**: "assistente virtual especializado em mangás e animes"
 - **Regras de comportamento**: resposta em português brasileiro, clara e objetiva
 - **Contexto**: histórico da conversa incluído no prompt
 - **Anti-alucinação**: instrução explícita de não inventar respostas
+- **Comparações hipotéticas** (regra 6): em perguntas como *"quem venceria X ou Y?"*, analisa os feitos documentados de cada um nos mangás/animes e defende um vencedor provável, explicando o raciocínio com base nas regras do próprio universo
+- **Tom leve e humor** (regra 7): respostas com leveza quando a pergunta permitir, mantendo respeito pela informação factual
 
 O histórico das mensagens anteriores é convertido no formato `ROLE: conteúdo` e incluído no prompt, permitindo conversas contextuais.
+
+### Janela de contexto limitada
+
+Para manter a coerência sem inflar o prompt, o `ChatService` envia à IA no máximo as **12 mensagens mais recentes** (~6 perguntas + 6 respostas, *sliding window*). O histórico completo permanece salvo no banco e é retornado pelo `GET /api/chat/{chatId}`.
+
+### `generationConfig` — parâmetros de geração
+
+| Parâmetro | Valor | Efeito |
+|---|---|---|
+| `temperature` | `0.8` | Mais criatividade, respostas menos padronizadas |
+| `topP` | `0.95` | Amostragem por núcleo de probabilidade |
+| `topK` | `40` | Restringe a amostragem aos 40 tokens mais prováveis |
+| `maxOutputTokens` | `512` | Limita o tamanho da resposta gerada |
 
 ---
 
