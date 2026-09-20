@@ -97,16 +97,44 @@ public class GeminiService {
     private String parseResponse(String json) {
         try {
             JsonNode root = objectMapper.readTree(json);
-            JsonNode candidates = root.path("candidates");
-            if (candidates.isEmpty()) {
-                throw new AIServiceException("Resposta da IA veio vazia ou sem candidatos.");
+
+            JsonNode errorNode = root.path("error");
+            if (!errorNode.isEmpty()) {
+                throw new AIServiceException(
+                        "Erro retornado pela API do Gemini: " + errorNode.path("message").asText());
             }
-            JsonNode text = candidates.get(0).path("content").path("parts").get(0).path("text");
-            return text.asText();
+
+            JsonNode candidates = root.path("candidates");
+            if (!candidates.isArray() || candidates.isEmpty()) {
+                throw new AIServiceException("Resposta da IA veio vazia ou sem candidatos: " + json);
+            }
+
+            JsonNode candidate = candidates.get(0);
+            JsonNode parts = candidate.path("content").path("parts");
+            if (!parts.isArray() || parts.isEmpty()) {
+                String finishReason = candidate.path("finishReason").asText("desconhecido");
+                String promptFeedback = root.path("promptFeedback").path("blockReason").asText("nenhum");
+                throw new AIServiceException(
+                        "Resposta da IA veio sem conteúdo. finishReason=" + finishReason
+                                + ", blockReason prompt=" + promptFeedback
+                                + " | body: " + json);
+            }
+
+            JsonNode firstPart = parts.get(0);
+            if (firstPart == null || firstPart.isNull()) {
+                throw new AIServiceException("Primeira parte da resposta da IA veio nula: " + json);
+            }
+
+            String text = firstPart.path("text").asText();
+            if (text.isBlank()) {
+                throw new AIServiceException("Texto vazio na resposta da IA: " + json);
+            }
+            return text;
         } catch (AIServiceException e) {
             throw e;
         } catch (Exception e) {
-            throw new AIServiceException("Falha ao interpretar a resposta da IA: " + e.getMessage());
+            throw new AIServiceException(
+                    "Falha ao interpretar a resposta da IA: " + e.getMessage() + " | body: " + json);
         }
     }
 }
