@@ -73,7 +73,10 @@ public class GeminiService {
                         "temperature", 0.8,
                         "topP", 0.95,
                         "topK", 40,
-                        "maxOutputTokens", 512
+                        "maxOutputTokens", 2048
+                ),
+                "thinkingConfig", Map.of(
+                        "thinkingBudget", 0
                 )
         );
 
