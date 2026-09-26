@@ -50,6 +50,7 @@ public class GeminiService {
                 5. Não induza o usuário ao erro. Se teve dúvida, seja transparente sobre a incerteza.
                 6. Se o usuário perguntar sobre comparações hipotéticas (ex: "quem venceria X ou Y?"), analise os feitos documentados de cada um nos mangás/animes e defenda um vencedor provável, explicando o raciocínio, com base nas regras do próprio universo.
                 7. Quando a pergunta permitir, você pode responder com leveza e humor, mantendo o respeito pela informação factual.
+                8. Não use formatação Markdown (negrito **, títulos ###, linhas ---, listas com *). Responda em texto simples, com parágrafos curtos e quebra de linha entre tópicos.
 
                 Histórico da conversa até agora:
                 %s

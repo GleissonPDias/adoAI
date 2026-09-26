@@ -22,7 +22,7 @@ Projeto desenvolvido para o curso de TSI (Senac) — ADO 1: *API Web integrada c
 | **Spring Data JPA + H2** | Persistência das conversas (banco em memória) |
 | **Spring Security** | Configuração de segurança liberada para demo |
 | **Jakarta Validation** | Validação de input (`@Valid`, `@NotBlank`, `@Size`) |
-| **Google Gemini API** | Provedor de IA Generativa (`gemini-3.6-flash`) |
+| **Google Gemini API** | Provedor de IA Generativa (`gemini-3.1-flash-lite`) |
 | **Springdoc OpenAPI (Swagger UI)** | Documentação interativa das rotas |
 | **Bucket4j** | Rate limiting (10 requisições/minuto por IP) |
 | **Lombok** | Redução de boilerplate |
