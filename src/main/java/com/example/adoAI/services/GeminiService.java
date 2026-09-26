@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
@@ -28,8 +29,13 @@ public class GeminiService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static final int MAX_RETRIES = 3;
+
     public GeminiService() {
-        this.restTemplate = new RestTemplate();
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(10_000);
+        factory.setReadTimeout(60_000);
+        this.restTemplate = new RestTemplate(factory);
     }
 
     public String generateResponse(String userMessage, String history) {
@@ -78,19 +84,35 @@ public class GeminiService {
         );
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(content, headers);
+        String url = apiUrl + "?key=" + apiKey;
 
-        try {
-            String url = apiUrl + "?key=" + apiKey;
-            byte[] responseBytes = restTemplate.postForObject(url, request, byte[].class);
-            return new String(responseBytes != null ? responseBytes : new byte[0], StandardCharsets.UTF_8);
-        } catch (HttpStatusCodeException e) {
-            throw new AIServiceException("Erro do provedor de IA (HTTP " + e.getStatusCode().value() + "): " + e.getResponseBodyAsString());
-        } catch (ResourceAccessException e) {
-            String cause = e.getMostSpecificCause().getMessage();
-            if (cause != null && (cause.contains("timed out") || cause.contains("Read timed out"))) {
-                throw new AITimeoutException("Tempo limite excedido ao aguardar resposta da IA.");
+        for (int attempt = 1; ; attempt++) {
+            try {
+                byte[] responseBytes = restTemplate.postForObject(url, request, byte[].class);
+                return new String(responseBytes != null ? responseBytes : new byte[0], StandardCharsets.UTF_8);
+            } catch (HttpStatusCodeException e) {
+                int status = e.getStatusCode().value();
+                if ((status == 429 || status == 503) && attempt < MAX_RETRIES) {
+                    sleepBeforeRetry(attempt);
+                    continue;
+                }
+                throw new AIServiceException("Erro do provedor de IA (HTTP " + status + "): " + e.getResponseBodyAsString());
+            } catch (ResourceAccessException e) {
+                String cause = e.getMostSpecificCause().getMessage();
+                if (cause != null && (cause.contains("timed out") || cause.contains("Read timed out"))) {
+                    throw new AITimeoutException("Tempo limite excedido ao aguardar resposta da IA.");
+                }
+                throw new AIServiceException("Falha de conexão com o provedor de IA: " + e.getMessage());
             }
-            throw new AIServiceException("Falha de conexão com o provedor de IA: " + e.getMessage());
+        }
+    }
+
+    private void sleepBeforeRetry(int attempt) {
+        try {
+            Thread.sleep(attempt * 2000L);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new AIServiceException("Requisição interrompida durante a espera para nova tentativa.");
         }
     }
 

@@ -1,5 +1,6 @@
 package com.example.adoAI.entities;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.persistence.*;
@@ -38,6 +39,7 @@ public class Chat {
     private LocalDateTime updatedAt;
 
     @OneToMany(mappedBy = "chat", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     private List<Message> messages = new ArrayList<>();
 
     @PrePersist

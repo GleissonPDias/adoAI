@@ -86,10 +86,33 @@ A aplicação sobe em **http://localhost:8080**.
 
 | Recurso | URL |
 |---|---|
+| **Frontend (chat)** | http://localhost:8080/ |
 | **Swagger UI** | http://localhost:8080/swagger-ui/index.html |
 | **OpenAPI JSON** | http://localhost:8080/v3/api-docs |
 | **H2 Console** | http://localhost:8080/h2-console |
 | **Chat API** | http://localhost:8080/api/chat |
+
+### Em produção (Render)
+
+| Recurso | URL |
+|---|---|
+| **Frontend (chat)** | https://adoai.onrender.com/ |
+| **Swagger UI** | https://adoai.onrender.com/swagger-ui/index.html |
+| **OpenAPI JSON** | https://adoai.onrender.com/v3/api-docs |
+| **Chat API** | https://adoai.onrender.com/api/chat |
+
+---
+
+## 🎨 Frontend (Chat)
+
+O frontend fica em `src/main/resources/static/index.html` e é servido pelo próprio Spring na raiz (`/`), consumindo a API na **mesma origem** — funciona igual localmente e no Render.
+
+Recursos:
+
+- **Chat em bolhas** — mensagens do usuário e do assistente, com quebras de linha preservadas e texto limpo (sem Markdown cru)
+- **Sidebar de conversas** — lista todas as conversas (`GET /api/chat`), permite **abrir** o histórico de uma conversa (`GET /api/chat/{id}`), **continuar** a conversa e **excluir** (`DELETE /api/chat/{id}`)
+- **Feedback de carregamento** — indicador **"Digitando..."** enquanto a IA responde (requisições de IA levam alguns segundos)
+- **Tratamento de erros** — mensagens legíveis quando a requisição falha (rede, timeout ou erro do provedor)
 
 ---
 
@@ -199,6 +222,7 @@ O `GeminiService` monta o prompt enviado à IA com:
 - **Anti-alucinação**: instrução explícita de não inventar respostas
 - **Comparações hipotéticas** (regra 6): em perguntas como *"quem venceria X ou Y?"*, analisa os feitos documentados de cada um nos mangás/animes e defende um vencedor provável, explicando o raciocínio com base nas regras do próprio universo
 - **Tom leve e humor** (regra 7): respostas com leveza quando a pergunta permitir, mantendo respeito pela informação factual
+- **Sem Markdown** (regra 8): respostas em texto simples, com parágrafos curtos e quebras de linha — sem `**`, `###` ou listas com `*`
 
 O histórico das mensagens anteriores é convertido no formato `ROLE: conteúdo` e incluído no prompt, permitindo conversas contextuais.
 
@@ -216,24 +240,28 @@ Para manter a coerência sem inflar o prompt, o `ChatService` envia à IA no má
 
 ---
 
-## ⚠️ Rate Limit (Resiliência)
+## ⚠️ Resiliência
 
-Implementado com **Bucket4j**: cada IP pode fazer **10 requisições por minuto**. Ao estourar, a API retorna **429** com mensagem clara — protegendo a aplicação contra abuso e sobrecarga do provedor de IA.
+A API foi desenhada para aguentar falhas do provedor de IA sem "quebrar":
+
+- **Rate limit (Bucket4j):** cada IP pode fazer **10 requisições por minuto**. Ao estourar, retorna **429** com mensagem clara — evita abuso e sobrecarga do provedor.
+- **Timeout:** o `RestTemplate` tem timeout de conexão de **10s** e de leitura de **60s**. Se o Gemini demorar demais, a API responde **504** em vez de travar o servidor.
+- **Retry com backoff:** em erros transitórios do provedor (**429** e **503**), a API tenta novamente até **3 vezes**, aguardando **2s** e depois **4s** antes de cada nova tentativa. Somente se todas falharem responde **502**.
 
 ---
 
 ## 🚀 Deploy no Render
 
-O projeto está pronto para deploy no [Render](https://render.com) (o `application.properties` usa `${GEMINI_API_KEY}`, que o Render resolve nativamente):
+O projeto já está configurado com o `Dockerfile` na raiz (multi-stage: build no `maven:3.9-eclipse-temurin-21` e runtime `eclipse-temurin:21-jre`). O `application.properties` usa `${GEMINI_API_KEY}`, que o Render resolve nativamente:
 
 1. **Suba o código no GitHub** sem a chave.
 2. No Render: **New → Web Service** → conecte o repositório.
-3. Configuração:
-   - **Build Command**: `./mvnw clean package -DskipTests`
-   - **Start Command**: `java -jar target/adoAI-0.0.1-SNAPSHOT.jar`
+3. Em **Environment (Docker)**, o Render detecta o `Dockerfile` automaticamente (`server.port=${PORT:8080}` já configurado).
 4. Em **Environment**, adicione:
    - `GEMINI_API_KEY` → sua chave
-5. **Deploy**. A API ficará disponível em `https://<seu-servico>.onrender.com` com o Swagger em `/swagger-ui/index.html`.
+5. **Deploy**. O app está no ar em `https://adoai.onrender.com` — o frontend na raiz (`/`) e o Swagger em `/swagger-ui/index.html`.
+
+> **Dica de demo:** o plano gratuito do Render "dorme" após ~15 min de inatividade. A primeira requisição após o sono leva ~1 min para "acordar" (cold start). Como o banco é H2 em memória, as conversas zeram a cada reinício.
 
 ---
 
@@ -248,7 +276,8 @@ com.example.adoAI
  ┣ 📂 exceptions    # Exceções customizadas + GlobalExceptionHandler
  ┣ 📂 infrastructure# RateLimitInterceptor, WebConfig (CORS/interceptor)
  ┣ 📂 repositories  # ChatRepository, MessageRepository
- ┗ 📂 services      # GeminiService (IA), ChatService (orquestração)
+ ┣ 📂 services      # GeminiService (IA), ChatService (orquestração)
+ ┣ 📂 resources/static# Frontend (index.html — chat com sidebar de conversas)
 ```
 
 ---

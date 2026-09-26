@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdoAI - Assistente de Mangás e Animes</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+            background: #12141f;
+            color: #e8e8f0;
+            height: 100vh;
+            display: flex;
+        }
+        #sidebar {
+            width: 260px;
+            background: #1c1f33;
+            border-right: 1px solid #2c3050;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        #sidebarHeader {
+            padding: 14px;
+            border-bottom: 1px solid #2c3050;
+        }
+        #sidebarHeader h2 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+        #newChatBtn {
+            width: 100%;
+            background: #3b82f6;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        #newChatBtn:hover { background: #2f6fd8; }
+        #chatList { flex: 1; overflow-y: auto; padding: 8px; }
+        .chat-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            padding: 9px 10px;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .chat-item:hover { background: #23263c; }
+        .chat-item.active { background: #2c3050; border-color: #3b82f6; }
+        .chat-item .info { flex: 1; min-width: 0; }
+        .chat-item .title {
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .chat-item .date { font-size: 11px; color: #9aa0c0; }
+        .chat-item .del {
+            background: none;
+            border: none;
+            color: #9aa0c0;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+        .chat-item .del:hover { color: #ff9b9b; background: #3a1a1f; }
+        #sidebarFooter { padding: 10px 14px; font-size: 11px; color: #9aa0c0; border-top: 1px solid #2c3050; }
+        #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        header {
+            padding: 14px 20px;
+            border-bottom: 1px solid #2c3050;
+            background: #1c1f33;
+        }
+        header h1 { font-size: 17px; font-weight: 600; }
+        header span { color: #9aa0c0; font-size: 12px; }
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .msg {
+            max-width: 78%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            line-height: 1.5;
+            white-space: pre-line;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+        .user {
+            align-self: flex-end;
+            background: #3b82f6;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+        .bot {
+            align-self: flex-start;
+            background: #23263c;
+            color: #e8e8f0;
+            border: 1px solid #2c3050;
+            border-bottom-left-radius: 4px;
+        }
+        .error {
+            align-self: flex-start;
+            background: #3a1a1f;
+            color: #ff9b9b;
+            border: 1px solid #6b2530;
+        }
+        .typing {
+            align-self: flex-start;
+            color: #9aa0c0;
+            font-size: 13px;
+            font-style: italic;
+            padding: 4px 6px;
+        }
+        .empty-state {
+            margin: auto;
+            color: #9aa0c0;
+            text-align: center;
+            font-size: 14px;
+        }
+        #inputArea {
+            border-top: 1px solid #2c3050;
+            padding: 14px;
+            display: flex;
+            gap: 10px;
+            background: #1c1f33;
+        }
+        #messageInput {
+            flex: 1;
+            background: #12141f;
+            color: #e8e8f0;
+            border: 1px solid #2c3050;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 14px;
+            resize: none;
+        }
+        #messageInput:focus { outline: none; border-color: #3b82f6; }
+        #sendBtn {
+            background: #3b82f6;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0 22px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        #sendBtn:disabled { background: #2c3050; cursor: wait; }
+    </style>
+</head>
+<body>
+<aside id="sidebar">
+    <div id="sidebarHeader">
+        <h2>Conversas</h2>
+        <button id="newChatBtn">Nova conversa</button>
+    </div>
+    <ul id="chatList"></ul>
+    <div id="sidebarFooter">AdoAI &middot; IA generativa (Gemini)</div>
+</aside>
+
+<div id="main">
+    <header>
+        <h1>Assistente de Mangás e Animes</h1>
+        <span>Clique em uma conversa para continuar</span>
+    </header>
+
+    <div id="messages"></div>
+
+    <div id="inputArea">
+        <textarea id="messageInput" rows="1" placeholder="Pergunte sobre mangás e animes..."></textarea>
+        <button id="sendBtn">Enviar</button>
+    </div>
+</div>
+
+<script>
+    let chatId = null;
+
+    const messagesEl = document.getElementById('messages');
+    const chatListEl = document.getElementById('chatList');
+    const inputEl = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    function addMessage(text, cls) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + cls;
+        div.textContent = text;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        return div;
+    }
+
+    function showEmpty() {
+        const div = document.createElement('div');
+        div.className = 'empty-state';
+        div.textContent = 'Selecione uma conversa ou inicie uma nova.';
+        messagesEl.appendChild(div);
+    }
+
+    function showTyping(show) {
+        let el = document.getElementById('typing');
+        if (show && !el) {
+            el = document.createElement('div');
+            el.id = 'typing';
+            el.className = 'typing';
+            el.textContent = 'Digitando...';
+            messagesEl.appendChild(el);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        } else if (!show && el) {
+            el.remove();
+        }
+    }
+
+    function formatDate(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d)) return '';
+        return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function loadChats() {
+        try {
+            const res = await fetch('/api/chat');
+            if (!res.ok) return;
+            const chats = await res.json();
+            renderChatList(chats);
+        } catch (err) {
+            chatListEl.innerHTML = '';
+        }
+    }
+
+    function renderChatList(chats) {
+        chatListEl.innerHTML = '';
+        if (!chats || chats.length === 0) {
+            const li = document.createElement('li');
+            li.style.cssText = 'list-style:none;color:#9aa0c0;font-size:13px;padding:8px;text-align:center;';
+            li.textContent = 'Nenhuma conversa ainda.';
+            chatListEl.appendChild(li);
+            return;
+        }
+        for (const chat of chats) {
+            const li = document.createElement('li');
+            li.style.listStyle = 'none';
+            const item = document.createElement('div');
+            item.className = 'chat-item' + (chat.id === chatId ? ' active' : '');
+            item.dataset.id = chat.id;
+
+            const info = document.createElement('div');
+            info.className = 'info';
+            const title = document.createElement('div');
+            title.className = 'title';
+            title.textContent = chat.title || ('Conversa #' + chat.id);
+            const date = document.createElement('div');
+            date.className = 'date';
+            date.textContent = formatDate(chat.createdAt);
+            info.appendChild(title);
+            info.appendChild(date);
+
+            const del = document.createElement('button');
+            del.className = 'del';
+            del.textContent = 'x';
+            del.title = 'Apagar conversa';
+            del.addEventListener('click', async function (e) {
+                e.stopPropagation();
+                await deleteChat(chat.id);
+            });
+
+            item.appendChild(info);
+            item.appendChild(del);
+            item.addEventListener('click', function () {
+                openChat(chat.id);
+            });
+
+            li.appendChild(item);
+            chatListEl.appendChild(li);
+        }
+    }
+
+    async function openChat(id) {
+        chatId = id;
+        messagesEl.innerHTML = '';
+        renderChatListActive(id);
+        try {
+            const res = await fetch('/api/chat/' + id);
+            if (!res.ok) {
+                addMessage('Erro ao carregar o histórico.', 'error');
+                return;
+            }
+            const history = await res.json();
+            if (!history || history.length === 0) {
+                showEmpty();
+                return;
+            }
+            for (const msg of history) {
+                addMessage(msg.content, msg.role === 'USER' ? 'user' : 'bot');
+            }
+        } catch (err) {
+            addMessage('Falha de conexão com o servidor.', 'error');
+        }
+        inputEl.focus();
+    }
+
+    function renderChatListActive(id) {
+        const items = chatListEl.querySelectorAll('.chat-item');
+        for (const it of items) {
+            it.classList.toggle('active', Number(it.dataset.id) === id);
+        }
+    }
+
+    async function deleteChat(id) {
+        try {
+            const res = await fetch('/api/chat/' + id, { method: 'DELETE' });
+            if (!res.ok && res.status !== 204) return;
+            if (id === chatId) {
+                chatId = null;
+                messagesEl.innerHTML = '';
+                showEmpty();
+            }
+            await loadChats();
+        } catch (err) {
+            // ignore
+        }
+    }
+
+    function resetToNewChat() {
+        chatId = null;
+        messagesEl.innerHTML = '';
+        showEmpty();
+        renderChatListActive(null);
+        inputEl.focus();
+    }
+
+    async function sendMessage() {
+        const message = inputEl.value.trim();
+        if (!message) return;
+
+        addMessage(message, 'user');
+        inputEl.value = '';
+        sendBtn.disabled = true;
+        showTyping(true);
+
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chatId: chatId, message: message })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                addMessage('Erro: ' + (data.message || 'Falha na requisição.'), 'error');
+                return;
+            }
+
+            const wasNewChat = chatId === null;
+            chatId = data.chatId;
+            addMessage(data.reply, 'bot');
+            if (wasNewChat) {
+                await loadChats();
+                renderChatListActive(chatId);
+            }
+        } catch (err) {
+            addMessage('Falha de conexão com o servidor. Tente novamente.', 'error');
+        } finally {
+            showTyping(false);
+            sendBtn.disabled = false;
+            inputEl.focus();
+        }
+    }
+
+    document.getElementById('newChatBtn').addEventListener('click', resetToNewChat);
+    sendBtn.addEventListener('click', sendMessage);
+    inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    loadChats();
+</script>
+</body>
+</html>
