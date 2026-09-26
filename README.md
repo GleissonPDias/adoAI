@@ -213,7 +213,6 @@ Para manter a coerência sem inflar o prompt, o `ChatService` envia à IA no má
 | `temperature` | `0.8` | Mais criatividade, respostas menos padronizadas |
 | `topP` | `0.95` | Amostragem por núcleo de probabilidade |
 | `topK` | `40` | Restringe a amostragem aos 40 tokens mais prováveis |
-| `maxOutputTokens` | `512` | Limita o tamanho da resposta gerada |
 
 ---
 

@@ -72,10 +72,7 @@ public class GeminiService {
                 "generationConfig", Map.of(
                         "temperature", 0.8,
                         "topP", 0.95,
-                        "topK", 40,
-                        "thinkingConfig", Map.of(
-                                "thinkingBudget", 0
-                        )
+                        "topK", 40
                 )
         );
 
