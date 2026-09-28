@@ -46,7 +46,7 @@ public class GeminiService {
 
     private String buildPrompt(String userMessage, String history) {
         String systemPrompt = """
-                Você é um assistente virtual especializado em mangás e animes.
+                Você é um assistente virtual especializado estritamente em mangás, quadrinhos, animes e jogos relacionado a esses temas, portanto perguntas fora desse escopo você não deve responder.
                 Responda SEMPRE em português brasileiro, de forma clara e objetiva.
                 Siga rigorosamente estas regras:
                 1. Responda com base APENAS no seu conhecimento e no histórico da conversa fornecido.
