@@ -60,7 +60,7 @@ setx GEMINI_API_KEY "sua-chave-aqui"
 ### 1. Clone e entre na pasta
 
 ```bash
-git clone <URL-do-seu-repositorio>
+git clone <https://github.com/GleissonPDias/adoAI>
 cd adoAI
 ```
 
@@ -89,7 +89,6 @@ A aplicação sobe em **http://localhost:8080**.
 | **Frontend (chat)** | http://localhost:8080/ |
 | **Swagger UI** | http://localhost:8080/swagger-ui/index.html |
 | **OpenAPI JSON** | http://localhost:8080/v3/api-docs |
-| **H2 Console** | http://localhost:8080/h2-console |
 | **Chat API** | http://localhost:8080/api/chat |
 
 ### Em produção (Render)
@@ -306,6 +305,6 @@ com.example.adoAI
 
 ---
 
-## ✍️ Autor
+## ✍️ Autores
 
-Projeto acadêmico — ADO 1 · TSI · Senac
+Gleisson Dias, Renan Nunes e Paulo Rogério.
