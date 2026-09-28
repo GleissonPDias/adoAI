@@ -248,6 +248,30 @@ A API foi desenhada para aguentar falhas do provedor de IA sem "quebrar":
 - **Timeout:** o `RestTemplate` tem timeout de conexão de **10s** e de leitura de **60s**. Se o Gemini demorar demais, a API responde **504** em vez de travar o servidor.
 - **Retry com backoff:** em erros transitórios do provedor (**429** e **503**), a API tenta novamente até **3 vezes**, aguardando **2s** e depois **4s** antes de cada nova tentativa. Somente se todas falharem responde **502**.
 
+### Como testar o retry e o timeout na prática
+
+Antes de rodar, garanta que o jar está com build atual (`./mvnw.cmd package -DskipTests`). A variável `GEMINI_API_URL` (sessão temporária) sobrescreve o endpoint real do Gemini **apenas naquele terminal** — abra um terminal novo para voltar ao normal.
+
+**Testar o retry (provedor respondendo 503 → 502):**
+
+```powershell
+$env:GEMINI_API_URL = "https://httpbin.org/status/503"
+java -jar target\adoAI-0.0.1-SNAPSHOT.jar
+```
+
+Envie um `POST /api/chat` no Swagger: as 3 tentativas rodam com backoff (~6s de "Digitando...") e a API responde **502**.
+
+**Testar o timeout (conexão que nunca completa → 504):**
+
+```powershell
+$env:GEMINI_API_URL = "http://10.255.255.1/generateContent"
+java -jar target\adoAI-0.0.1-SNAPSHOT.jar
+```
+
+Após ~10s (timeout de conexão) o `POST /api/chat` responde **504**. O `httpbin.org/status/503` responde apenas `503` (sem corpo), por isso o "message" do erro vem vazio.
+
+> **Nota:** no plano gratuito do Gemini, o endpoint real raramente retorna 429/503, por isso a override é usada para demonstrar os cenários sem depender do provedor.
+
 ---
 
 ## 🚀 Deploy no Render
