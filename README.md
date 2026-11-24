@@ -24,7 +24,7 @@ Projeto desenvolvido para o curso de TSI (Senac) — ADO 1: *API Web integrada c
 | **Jakarta Validation** | Validação de input (`@Valid`, `@NotBlank`, `@Size`) |
 | **Google Gemini API** | Provedor de IA Generativa (`gemini-3.1-flash-lite`) |
 | **Springdoc OpenAPI (Swagger UI)** | Documentação interativa das rotas |
-| **Bucket4j** | Rate limiting (10 requisições/minuto por IP) |
+| **Bucket4j** | Rate limiting (5 mensagens/minuto por IP; GETs de navegação não consomem) |
 | **Lombok** | Redução de boilerplate |
 
 ---
@@ -110,7 +110,7 @@ Recursos:
 
 - **Chat em bolhas** — mensagens do usuário e do assistente, com quebras de linha preservadas e texto limpo (sem Markdown cru)
 - **Sidebar de conversas** — lista todas as conversas (`GET /api/chat`), permite **abrir** o histórico de uma conversa (`GET /api/chat/{id}`), **continuar** a conversa e **excluir** (`DELETE /api/chat/{id}`)
-- **Feedback de carregamento** — indicador **"Digitando..."** enquanto a IA responde (requisições de IA levam alguns segundos)
+- **Resposta em tempo real (SSE)** — o texto da IA aparece progressivamente, com cursor de digitação, enquanto é gerado
 - **Tratamento de erros** — mensagens legíveis quando a requisição falha (rede, timeout ou erro do provedor)
 
 ---
@@ -143,6 +143,35 @@ Envia a pergunta do usuário, chama a IA e retorna a resposta.
   "reply": "Mangá é o termo para histórias em quadrinhos japonesas..."
 }
 ```
+
+---
+
+### `POST /api/chat/stream` — Enviar mensagem com resposta em tempo real (SSE)
+
+Mesmo corpo de `POST /api/chat`, mas a resposta é transmitida via **Server-Sent Events** enquanto o Gemini gera o texto (endpoint nativo `streamGenerateContent?alt=sse`). O endpoint antigo continua disponível para clientes que esperam a resposta completa.
+
+**Body:** idêntico ao de `POST /api/chat`.
+
+**Resposta (200 OK, `text/event-stream`):**
+
+| Evento | Data | Significado |
+|---|---|---|
+| `meta` | `1` | ID da conversa (já persistida) |
+| `chunk` | trecho do texto | Delta gerado pela IA, enviado assim que chega |
+| `done` | vazio | Stream finalizado; resposta completa persistida |
+| `error` | mensagem | Falha durante a geração |
+
+```javascript
+const res = await fetch('/api/chat/stream', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ chatId: null, message: 'Explique o Gear 5' })
+});
+const reader = res.body.getReader();
+// leia os frames separados por linha em branco (event:/data:)
+```
+
+A conexão é fechada ao final, em timeout (180s) ou quando o cliente cancela — nesses casos a chamada ao Gemini também é cancelada.
 
 ---
 
@@ -243,7 +272,7 @@ Para manter a coerência sem inflar o prompt, o `ChatService` envia à IA no má
 
 A API foi desenhada para aguentar falhas do provedor de IA sem "quebrar":
 
-- **Rate limit (Bucket4j):** cada IP pode fazer **10 requisições por minuto**. Ao estourar, retorna **429** com mensagem clara — evita abuso e sobrecarga do provedor.
+- **Rate limit (Bucket4j):** cada IP pode enviar **5 mensagens por minuto**. Os GETs de navegação (listar conversas e histórico) não consomem o limite. Ao estourar, retorna **429** com mensagem clara — evita abuso e sobrecarga do provedor.
 - **Timeout:** o `RestTemplate` tem timeout de conexão de **10s** e de leitura de **60s**. Se o Gemini demorar demais, a API responde **504** em vez de travar o servidor.
 - **Retry com backoff:** em erros transitórios do provedor (**429** e **503**), a API tenta novamente até **3 vezes**, aguardando **2s** e depois **4s** antes de cada nova tentativa. Somente se todas falharem responde **502**.
 

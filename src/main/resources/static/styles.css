@@ -915,6 +915,30 @@ button {
     color: #FCA5A5;
 }
 
+/* Cursor de streaming (a resposta está sendo construída) */
+
+.bubble.streaming {
+    min-height: 24px;
+}
+
+.bubble.streaming::after {
+    content: "";
+    display: inline-block;
+    width: 2px;
+    height: 1.05em;
+    margin-left: 3px;
+    vertical-align: -0.18em;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #C4B5FD, #60A5FA);
+    box-shadow: 0 0 10px rgba(167, 139, 250, 0.7);
+    animation: caretBlink 1s step-end infinite;
+}
+
+@keyframes caretBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
 /* Premium loading */
 
 .typing-row {

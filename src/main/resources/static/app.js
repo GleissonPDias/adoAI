@@ -10,6 +10,7 @@
     };
 
     let chatId = null;
+    let activeStream = null;
 
     const messagesEl = document.getElementById('messages');
     const chatListEl = document.getElementById('chatList');
@@ -237,6 +238,7 @@
     }
 
     async function openChat(id) {
+        cancelActiveStream();
         chatId = id;
         clearMessages();
         renderChatListActive(id);
@@ -271,18 +273,29 @@
     async function deleteChat(id) {
         try {
             const res = await fetch('/api/chat/' + id, { method: 'DELETE' });
-            if (!res.ok && res.status !== 204) return;
+            if (!res.ok && res.status !== 204) {
+                let data = {};
+                try {
+                    data = await res.json();
+                } catch (err) {
+                    // resposta sem corpo JSON
+                }
+                addMessage('Erro: ' + (data.message || 'Não foi possível apagar a conversa.'), 'error');
+                return;
+            }
             if (id === chatId) {
+                cancelActiveStream();
                 chatId = null;
                 showEmpty();
             }
             await loadChats();
         } catch (err) {
-            // ignore
+            addMessage('Falha de conexão com o servidor. Tente novamente.', 'error');
         }
     }
 
     function resetToNewChat() {
+        cancelActiveStream();
         chatId = null;
         showEmpty();
         renderChatListActive(null);
@@ -291,41 +304,167 @@
         inputEl.focus();
     }
 
+    /* ---------------------------- SSE ---------------------------------- */
+
+    function cancelActiveStream() {
+        if (!activeStream) return;
+        const stream = activeStream;
+        activeStream = null;
+        try {
+            stream.controller.abort();
+        } catch (err) {
+            // já abortado
+        }
+    }
+
+    function parseSSEFrame(frame) {
+        let event = 'message';
+        const data = [];
+        for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) {
+                event = line.slice(6).trim();
+            } else if (line.startsWith('data:')) {
+                // O SseEmitter do Spring escreve "data:" sem o espaço canônico do SSE.
+                // Remover um espaço aqui corromperia chunks que começam com espaço
+                // (ex.: " de Monkey" viraria "deMonkey").
+                data.push(line.slice(5));
+            }
+        }
+        return data.length ? { event: event, data: data.join('\n') } : null;
+    }
+
+    function friendlyError(err) {
+        const msg = err && err.message ? String(err.message) : '';
+        return msg.startsWith('Erro:') ? msg : 'Falha de conexão com o servidor. Tente novamente.';
+    }
+
     async function sendMessage() {
         const message = inputEl.value.trim();
         if (!message) return;
 
+        cancelActiveStream();
+        const controller = new AbortController();
+        activeStream = { controller: controller, reader: null };
+
+        const wasNewChat = chatId === null;
+
         clearMessages();
         addMessage(message, 'user');
+        const botRow = addMessage('', 'bot');
+        const bubble = botRow.querySelector('.bubble');
+        bubble.classList.add('streaming');
+
         inputEl.value = '';
         resizeInput();
         sendBtn.disabled = true;
         showTyping(true);
 
+        let fullText = '';
+        let firstChunk = false;
+        let streamDone = false;
+
+        function handleFrame(frame) {
+            const event = parseSSEFrame(frame);
+            if (!event) return;
+
+            if (event.event === 'meta') {
+                chatId = Number(event.data) || chatId;
+                renderChatListActive(chatId);
+                if (wasNewChat) {
+                    loadChats().then(function () {
+                        renderChatListActive(chatId);
+                    });
+                }
+            } else if (event.event === 'chunk') {
+                if (!firstChunk) {
+                    showTyping(false);
+                    firstChunk = true;
+                }
+                fullText += event.data;
+                bubble.textContent = fullText;
+                scrollToBottom();
+            } else if (event.event === 'done') {
+                streamDone = true;
+            } else if (event.event === 'error') {
+                throw new Error('Erro: ' + (event.data || 'Falha na requisição.'));
+            }
+        }
+
         try {
-            const res = await fetch('/api/chat', {
+            const res = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chatId: chatId, message: message })
+                body: JSON.stringify({ chatId: chatId, message: message }),
+                signal: controller.signal
             });
 
-            const data = await res.json();
             if (!res.ok) {
-                addMessage('Erro: ' + (data.message || 'Falha na requisição.'), 'error');
-                return;
+                let data = {};
+                try {
+                    data = await res.json();
+                } catch (err) {
+                    // resposta sem corpo JSON
+                }
+                throw new Error('Erro: ' + (data.message || 'Falha na requisição.'));
+            }
+            if (!res.body) {
+                throw new Error('Falha de conexão com o servidor. Tente novamente.');
             }
 
-            const wasNewChat = chatId === null;
-            chatId = data.chatId;
-            addMessage(data.reply, 'bot');
-            if (wasNewChat) {
-                await loadChats();
-                renderChatListActive(chatId);
+            const reader = res.body.getReader();
+            activeStream.reader = reader;
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            // Para no 'done': uma leitura adicional pode falhar porque alguns
+            // proxies fecham o chunked encoding logo após o último evento.
+            while (!streamDone) {
+                const result = await reader.read();
+                if (result.done) break;
+
+                buffer += decoder.decode(result.value, { stream: true }).replace(/\r\n/g, '\n');
+                let boundary;
+                while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+                    handleFrame(buffer.slice(0, boundary));
+                    buffer = buffer.slice(boundary + 2);
+                    if (streamDone) break;
+                }
+            }
+
+            if (!streamDone) {
+                buffer += decoder.decode();
+                if (buffer.trim()) {
+                    handleFrame(buffer);
+                }
             }
         } catch (err) {
-            addMessage('Falha de conexão com o servidor. Tente novamente.', 'error');
+            if (streamDone) {
+                // Conteúdo completo já recebido: ignorar falha na leitura final.
+            } else if (err && err.name === 'AbortError') {
+                bubble.remove();
+                return;
+            } else {
+                const text = friendlyError(err);
+                bubble.textContent = fullText ? fullText + '\n\n' + text : text;
+                bubble.classList.remove('streaming');
+                bubble.classList.add('error-bubble');
+                botRow.classList.remove('bot');
+                botRow.classList.add('error');
+                const avatar = botRow.querySelector('.msg-avatar');
+                if (avatar) {
+                    avatar.innerHTML = ICONS.alert;
+                }
+                const author = botRow.querySelector('.msg-author');
+                if (author) {
+                    author.textContent = 'Atenção';
+                }
+            }
         } finally {
+            if (activeStream && activeStream.controller === controller) {
+                activeStream = null;
+            }
             showTyping(false);
+            bubble.classList.remove('streaming');
             sendBtn.disabled = false;
             inputEl.focus();
         }
@@ -382,6 +521,8 @@
             closeSidebar();
         }
     });
+
+    window.addEventListener('beforeunload', cancelActiveStream);
 
     showEmpty();
     loadChats();

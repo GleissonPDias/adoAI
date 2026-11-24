@@ -5,6 +5,8 @@ import com.example.adoAI.dtos.ChatHistoryDTO;
 import com.example.adoAI.dtos.ChatRequest;
 import com.example.adoAI.dtos.ChatResponse;
 import com.example.adoAI.entities.Chat;
+import com.example.adoAI.exceptions.AIServiceException;
+import com.example.adoAI.exceptions.AITimeoutException;
 import com.example.adoAI.exceptions.ErrorResponse;
 import com.example.adoAI.services.ChatService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,14 +19,19 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Tag(name = "Chat", description = "Endpoints do chatbot com IA generativa")
 @RestController
 @RequestMapping("/api/chat")
-@ApiResponse(responseCode = "429", description = "Muitas requisições no minuto (rate limit de 10 requisições/minuto por IP)",
+@ApiResponse(responseCode = "429", description = "Muitas mensagens no minuto (limite de 5 mensagens/minuto por IP)",
         content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
                 examples = @ExampleObject(name = "429", summary = "Rate limit excedido",
                         value = "{\"status\":429,\"message\":\"Muitas requisições. Aguarde um momento e tente novamente.\",\"timestamp\":\"2026-09-27T21:49:59.765Z\"}")))
@@ -33,6 +40,8 @@ import java.util.List;
                 examples = @ExampleObject(name = "500", summary = "Erro interno",
                         value = "{\"status\":500,\"message\":\"Erro interno do servidor. Tente novamente mais tarde.\",\"timestamp\":\"2026-09-27T21:49:59.765Z\"}")))
 public class ChatController {
+
+    private static final long STREAM_TIMEOUT_MS = 180_000L;
 
     private static final String TS = "2026-09-27T21:49:59.765Z";
 
@@ -93,6 +102,66 @@ public class ChatController {
     public ResponseEntity<ChatResponse> sendMessage(@Valid @RequestBody ChatRequest request ) {
         ChatResponse response = chatService.sendMessage(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(summary = "Envia uma mensagem e transmite a resposta da IA em tempo real (SSE)",
+            description = "Mesmo payload de POST /api/chat, mas a resposta chega progressivamente. " +
+                    "Eventos: 'meta' (chatId), 'chunk' (pedaço do texto), 'done' e 'error'.")
+    @PostMapping("/stream")
+    public SseEmitter streamMessage(@Valid @RequestBody ChatRequest request) {
+        // Preparo (validação de chat, persistência da pergunta) fora do emitter:
+        // exceções aqui continuam sendo respondidas como JSON pelo GlobalExceptionHandler.
+        Flux<ServerSentEvent<String>> events = chatService.streamMessage(request);
+
+        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        AtomicReference<Disposable> subscription = new AtomicReference<>();
+
+        Runnable cancelStream = () -> {
+            Disposable disposable = subscription.getAndSet(null);
+            if (disposable != null && !disposable.isDisposed()) {
+                disposable.dispose();
+            }
+        };
+
+        emitter.onTimeout(() -> {
+            cancelStream.run();
+            emitter.complete();
+        });
+        emitter.onCompletion(cancelStream);
+        emitter.onError(throwable -> cancelStream.run());
+
+        subscription.set(events.subscribe(
+                event -> {
+                    try {
+                        emitter.send(SseEmitter.event().name(event.event()).data(event.data()));
+                    } catch (Exception ex) {
+                        // Cliente desconectou: interrompe a chamada ao Gemini e libera a conexão.
+                        cancelStream.run();
+                        emitter.complete();
+                    }
+                },
+                error -> {
+                    cancelStream.run();
+                    try {
+                        // headers 200 já foram enviados: um evento 'error' dá ao frontend
+                        // a mensagem real em vez de apenas uma conexão abortada.
+                        emitter.send(SseEmitter.event().name("error").data(streamErrorMessage(error)));
+                        emitter.complete();
+                    } catch (Exception ex) {
+                        emitter.complete();
+                    }
+                },
+                emitter::complete
+        ));
+
+        return emitter;
+    }
+
+    private static String streamErrorMessage(Throwable error) {
+        if (error instanceof AIServiceException || error instanceof AITimeoutException) {
+            return error.getMessage();
+        }
+        return "Erro interno ao gerar a resposta. Tente novamente.";
     }
 
     @Operation(summary = "Retorna o histórico de uma conversa",

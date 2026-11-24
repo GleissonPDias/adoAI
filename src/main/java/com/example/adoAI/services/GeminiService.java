@@ -13,9 +13,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Flux;
+import reactor.util.retry.Retry;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class GeminiService {
@@ -27,21 +34,73 @@ public class GeminiService {
     private String apiUrl;
 
     private final RestTemplate restTemplate;
+    private final WebClient webClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final int MAX_RETRIES = 3;
+    private static final int CONNECT_TIMEOUT_SECONDS = 10;
+    private static final int READ_TIMEOUT_SECONDS = 60;
+    private static final int RETRY_BACKOFF_SECONDS = 2;
 
     public GeminiService() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(10_000);
-        factory.setReadTimeout(60_000);
+        factory.setConnectTimeout(CONNECT_TIMEOUT_SECONDS * 1000);
+        factory.setReadTimeout(READ_TIMEOUT_SECONDS * 1000);
         this.restTemplate = new RestTemplate(factory);
+        this.webClient = WebClient.create();
     }
 
+    /**
+     * Fluxo bloqueante existente (mantido para compatibilidade da API).
+     */
     public String generateResponse(String userMessage, String history) {
         String prompt = buildPrompt(userMessage, history);
         String responseJson = callGemini(prompt);
         return parseResponse(responseJson);
+    }
+
+    /**
+     * Streaming real: consome o endpoint nativo streamGenerateContent do Gemini (alt=sse)
+     * e emite cada delta de texto assim que ele chega, sem esperar a resposta completa.
+     */
+    public Flux<String> streamResponse(String userMessage, String history) {
+        String prompt = buildPrompt(userMessage, history);
+
+        return webClient.post()
+                .uri(buildStreamUrl())
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .bodyValue(buildRequestBody(prompt))
+                .retrieve()
+                .bodyToFlux(String.class)
+                // timeout de ociosidade entre chunks (reinicia a cada evento recebido)
+                .timeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
+                // 429/503 ocorrem antes de qualquer chunk: retry não duplica texto já enviado
+                .retryWhen(Retry.backoff(MAX_RETRIES - 1L, Duration.ofSeconds(RETRY_BACKOFF_SECONDS))
+                        .filter(GeminiService::isRetryable)
+                        .jitter(0.0))
+                .onErrorMap(TimeoutException.class, ex ->
+                        new AITimeoutException("Tempo limite excedido ao aguardar resposta da IA."))
+                .onErrorMap(WebClientResponseException.class, ex ->
+                        new AIServiceException("Erro do provedor de IA (HTTP " + ex.getStatusCode().value()
+                                + "): " + ex.getResponseBodyAsString()))
+                .onErrorMap(WebClientRequestException.class, ex ->
+                        new AIServiceException("Falha de conexão com o provedor de IA: " + ex.getMessage()))
+                .map(this::parseStreamChunk)
+                .filter(text -> !text.isEmpty());
+    }
+
+    private static boolean isRetryable(Throwable ex) {
+        if (ex instanceof WebClientResponseException we) {
+            int status = we.getStatusCode().value();
+            return status == 429 || status == 503;
+        }
+        return false;
+    }
+
+    private String buildStreamUrl() {
+        String url = apiUrl.replace(":generateContent", ":streamGenerateContent");
+        return url + (url.contains("?") ? "&" : "?") + "alt=sse&key=" + apiKey;
     }
 
     private String buildPrompt(String userMessage, String history) {
@@ -66,11 +125,8 @@ public class GeminiService {
         return systemPrompt;
     }
 
-    private String callGemini(String prompt) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        Map<String, Object> content = Map.of(
+    private Map<String, Object> buildRequestBody(String prompt) {
+        return Map.of(
                 "contents", new Object[]{
                         Map.of("parts", new Object[]{
                                 Map.of("text", prompt)
@@ -82,8 +138,13 @@ public class GeminiService {
                         "topK", 40
                 )
         );
+    }
 
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(content, headers);
+    private String callGemini(String prompt) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(buildRequestBody(prompt), headers);
         String url = apiUrl + "?key=" + apiKey;
 
         for (int attempt = 1; ; attempt++) {
@@ -109,7 +170,7 @@ public class GeminiService {
 
     private void sleepBeforeRetry(int attempt) {
         try {
-            Thread.sleep(attempt * 2000L);
+            Thread.sleep(attempt * RETRY_BACKOFF_SECONDS * 1000L);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new AIServiceException("Requisição interrompida durante a espera para nova tentativa.");
@@ -157,6 +218,45 @@ public class GeminiService {
         } catch (Exception e) {
             throw new AIServiceException(
                     "Falha ao interpretar a resposta da IA: " + e.getMessage() + " | body: " + json);
+        }
+    }
+
+    /**
+     * Cada evento SSE do Gemini é um GenerateContentResponse completo com um pedaço do texto.
+     */
+    private String parseStreamChunk(String json) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+
+            JsonNode errorNode = root.path("error");
+            if (!errorNode.isEmpty()) {
+                throw new AIServiceException(
+                        "Erro retornado pela API do Gemini: " + errorNode.path("message").asText());
+            }
+
+            JsonNode candidates = root.path("candidates");
+            if (!candidates.isArray() || candidates.isEmpty()) {
+                return "";
+            }
+
+            JsonNode parts = candidates.get(0).path("content").path("parts");
+            if (!parts.isArray() || parts.isEmpty()) {
+                return "";
+            }
+
+            StringBuilder text = new StringBuilder();
+            for (JsonNode part : parts) {
+                if (part.path("thought").asBoolean(false)) {
+                    continue;
+                }
+                text.append(part.path("text").asText(""));
+            }
+            return text.toString();
+        } catch (AIServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AIServiceException(
+                    "Falha ao interpretar o stream da IA: " + e.getMessage() + " | chunk: " + json);
         }
     }
 }

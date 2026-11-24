@@ -19,7 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class RateLimitInterceptor implements HandlerInterceptor {
 
-    private static final int REQUESTS_PER_MINUTE = 4;
+    // Limite de mensagens enviadas por minuto (os GET de navegação não consomem).
+    private static final int REQUESTS_PER_MINUTE = 5;
 
     private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -35,6 +36,13 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        // Leituras e preflight CORS não acionam o provedor de IA e são necessárias
+        // para navegar pela UI; limitar só as operações que realmente gastam recurso.
+        String method = request.getMethod();
+        if ("GET".equals(method) || "HEAD".equals(method) || "OPTIONS".equals(method)) {
+            return true;
+        }
+
         String clientKey = request.getRemoteAddr();
         Bucket bucket = resolveBucket(clientKey);
 
