@@ -6,6 +6,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.Refill;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
@@ -36,6 +37,12 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        // O SseEmitter gera um dispatch ASYNC adicional quando o stream termina.
+        // Sem este guard, cada mensagem SSE cobraria 2 tokens em vez de 1.
+        if (request.getDispatcherType() == DispatcherType.ASYNC) {
+            return true;
+        }
+
         // Leituras e preflight CORS não acionam o provedor de IA e são necessárias
         // para navegar pela UI; limitar só as operações que realmente gastam recurso.
         String method = request.getMethod();

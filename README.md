@@ -272,7 +272,7 @@ Para manter a coerência sem inflar o prompt, o `ChatService` envia à IA no má
 
 A API foi desenhada para aguentar falhas do provedor de IA sem "quebrar":
 
-- **Rate limit (Bucket4j):** cada IP pode enviar **5 mensagens por minuto**. Os GETs de navegação (listar conversas e histórico) não consomem o limite. Ao estourar, retorna **429** com mensagem clara — evita abuso e sobrecarga do provedor.
+- **Rate limit (Bucket4j):** cada IP pode enviar **5 mensagens por minuto**. Os GETs de navegação (listar conversas e histórico) não consomem o limite. O dispatch assíncrono do SSE também não conta — cada mensagem consome exatamente 1 token. Ao estourar, retorna **429** com mensagem clara — evita abuso e sobrecarga do provedor.
 - **Timeout:** o `RestTemplate` tem timeout de conexão de **10s** e de leitura de **60s**. Se o Gemini demorar demais, a API responde **504** em vez de travar o servidor.
 - **Retry com backoff:** em erros transitórios do provedor (**429** e **503**), a API tenta novamente até **3 vezes**, aguardando **2s** e depois **4s** antes de cada nova tentativa. Somente se todas falharem responde **502**.
 
