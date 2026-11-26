@@ -36,6 +36,12 @@
         messagesEl.innerHTML = '';
     }
 
+    function removeHero() {
+        messagesEl.querySelectorAll('.hero').forEach(function (el) {
+            el.remove();
+        });
+    }
+
     function addMessage(text, cls, time) {
         const isUser = cls === 'user';
         const isError = cls === 'error';
@@ -348,7 +354,14 @@
 
         const wasNewChat = chatId === null;
 
-        clearMessages();
+        // Mantém as mensagens já exibidas ao continuar uma conversa existente.
+        // Só limpa a tela ao iniciar uma conversa nova (onde fica o hero/sugestões).
+        if (wasNewChat) {
+            clearMessages();
+        } else {
+            removeHero();
+        }
+        showTyping(false);
         addMessage(message, 'user');
         const botRow = addMessage('', 'bot');
         const bubble = botRow.querySelector('.bubble');

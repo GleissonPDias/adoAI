@@ -39,6 +39,7 @@ public class Chat {
     private LocalDateTime updatedAt;
 
     @OneToMany(mappedBy = "chat", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("createdAt ASC, id ASC")
     @JsonIgnore
     private List<Message> messages = new ArrayList<>();
 

@@ -24,7 +24,7 @@ Projeto desenvolvido para o curso de TSI (Senac) — ADO 1: *API Web integrada c
 | **Jakarta Validation** | Validação de input (`@Valid`, `@NotBlank`, `@Size`) |
 | **Google Gemini API** | Provedor de IA Generativa (`gemini-3.1-flash-lite`) |
 | **Springdoc OpenAPI (Swagger UI)** | Documentação interativa das rotas |
-| **Bucket4j** | Rate limiting (5 mensagens/minuto por IP; GETs de navegação não consomem) |
+| **Bucket4j** | Rate limiting (5 req/min por IP em POST/DELETE de `/api/**`; GETs não consomem) |
 | **Lombok** | Redução de boilerplate |
 
 ---
@@ -110,6 +110,7 @@ Recursos:
 
 - **Chat em bolhas** — mensagens do usuário e do assistente, com quebras de linha preservadas e texto limpo (sem Markdown cru)
 - **Sidebar de conversas** — lista todas as conversas (`GET /api/chat`), permite **abrir** o histórico de uma conversa (`GET /api/chat/{id}`), **continuar** a conversa e **excluir** (`DELETE /api/chat/{id}`)
+- **Histórico preservado na tela** — ao enviar uma nova mensagem em uma conversa existente, as mensagens anteriores continuam visíveis (a tela só é limpa ao iniciar uma conversa nova)
 - **Resposta em tempo real (SSE)** — o texto da IA aparece progressivamente, com cursor de digitação, enquanto é gerado
 - **Tratamento de erros** — mensagens legíveis quando a requisição falha (rede, timeout ou erro do provedor)
 
@@ -183,7 +184,7 @@ Retorna a lista de conversas salvas.
 
 ### `GET /api/chat/{chatId}` — Histórico de uma conversa
 
-Retorna as mensagens (usuário e assistente) de uma conversa específica.
+Retorna as mensagens (usuário e assistente) de uma conversa específica, em ordem cronológica.
 
 **Resposta (200 OK) — exemplo:**
 ```json
@@ -222,7 +223,7 @@ A API possui um **Global Exception Handler** que padroniza as respostas de erro.
 | **204** | Delete sem conteúdo | — |
 | **400** | Dados inválidos (ex: mensagem vazia, JSON malformado) | `{ status, message, fieldErrors }` |
 | **404** | Conversa não encontrada | `{ status, message }` |
-| **429** | Rate limit excedido (10 req/min por IP) | `{ status, message }` |
+| **429** | Rate limit excedido (5 req/min por IP em POST/DELETE de `/api/**`) | `{ status, message }` |
 | **502** | Falha na comunicação com a IA (ex: API key inválida) | `{ status, message }` |
 | **504** | Timeout do provedor de IA | `{ status, message }` |
 | **500** | Erro interno não esperado | `{ status, message }` |
@@ -272,9 +273,9 @@ Para manter a coerência sem inflar o prompt, o `ChatService` envia à IA no má
 
 A API foi desenhada para aguentar falhas do provedor de IA sem "quebrar":
 
-- **Rate limit (Bucket4j):** cada IP pode enviar **5 mensagens por minuto**. Os GETs de navegação (listar conversas e histórico) não consomem o limite. O dispatch assíncrono do SSE também não conta — cada mensagem consome exatamente 1 token. Ao estourar, retorna **429** com mensagem clara — evita abuso e sobrecarga do provedor.
+- **Rate limit (Bucket4j):** cada IP tem **5 requisições por minuto** nas operações de escrita de `/api/**` (POST e DELETE, incluindo `/api/chat` e `/api/chat/stream`). GETs, HEAD e OPTIONS de navegação/preflight não consomem limite, e o dispatch assíncrono do SSE também não conta — cada mensagem consome exatamente 1 token. Ao estourar, retorna **429** com `Retry-After: 60` e mensagem clara — evita abuso e sobrecarga do provedor.
 - **Timeout:** o `RestTemplate` tem timeout de conexão de **10s** e de leitura de **60s**. Se o Gemini demorar demais, a API responde **504** em vez de travar o servidor.
-- **Retry com backoff:** em erros transitórios do provedor (**429** e **503**), a API tenta novamente até **3 vezes**, aguardando **2s** e depois **4s** antes de cada nova tentativa. Somente se todas falharem responde **502**.
+- **Retry com backoff:** em erros transitórios do provedor (**429** e **503**), a API faz até **3 tentativas no total** (2 retentativas), aguardando **2s** e depois **4s** entre elas. Somente se todas falharem responde **502**.
 
 ### Como testar o retry e o timeout na prática
 
